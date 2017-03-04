@@ -1,0 +1,22 @@
+{
+  "name": "themecraft/wordpress-openid-connect",
+  "description": "Enabled users to authenticate using any OpenID Connect compliant provider",
+  "type": "plugin",
+  "license": "GPL-2.0",
+  "authors": [
+    {
+      "name": "Ettore Del Negro",
+      "email": "ettore@themecraft.studio"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Themecraft\\WordPress\\OpenIDConnect\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">=7",
+    "guzzlehttp/guzzle": "^6.2",
+    "firebase/php-jwt": "^4.0"
+  }
+}

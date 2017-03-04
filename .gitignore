@@ -1,0 +1,6 @@
+/vendor/
+/log/
+/wp/
+
+.idea/
+.DS_Store
