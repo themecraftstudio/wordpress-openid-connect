@@ -106,7 +106,9 @@ add_action( 'login_form_login', function () {
 	// Make an authorization request using the authorization code flow
 	$requestParams = [
 		'scope' => 'openid'. $provider->supportsScope('email') ? ' email' : '',
-		'response_type' => 'code',
+//		'response_type' => 'code',
+		'response_type' => 'id_token',
+		'nonce' => 'stufaiu123h34 ei1u 3h31u2i',
 		'redirect_uri' => site_url() . '/wp-login.php', // MUST match the redirection URI provided by the Client (this siteapp) when it was pre-registered at the OpenID provider. NO query parameters are accepted!!!
 		'client_id' => $provider->getClientId(),
 		'state' => '123', // to maintain state between the request and the callback. Avoid XSRF attacks.
@@ -123,10 +125,13 @@ add_filter( 'authenticate', function ($user, $email) {
 	if (!array_key_exists('state', $_GET) || !array_key_exists('code', $_GET))
 		return $user;
 
+	$authorizationCode = $_GET['code'];
+
 	// 1. verify state is valid
 	// 2. get the issuer/provider from the state
 	$issuer = 'https://accounts.google.com'; // remove me
 	$provider = \Themecraft\WordPress\OpenIDConnect\OpenID\Provider::getByIssuer($issuer);
+	$provider->getAccessToken($authorizationCode);
 
 	// Fetch user email
 	$email = 'ettore@themecraft.studio';
