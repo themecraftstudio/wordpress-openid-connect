@@ -1,6 +1,6 @@
 <?php
 /*
- * Plugin Name: OpenID Connect
+ * Plugin Name: OpenID Connect Authenticator
  * Plugin URI:  https://developer.wordpress.org/plugins/openid-connect/
  * Description: Enable users to authenticate using any OpenID Connect compliant provider
  * Version:     0.0.1
@@ -25,33 +25,41 @@
  along with {Plugin Name}. If not, see {URI to Plugin License}.
  */
 
-
-//
-register_activation_hook( __FILE__, function () {
-
-} );
-//
-//register_deactivation_hook( __FILE__, function () {
-//
-//} );
-//
-register_uninstall_hook(__FILE__, 'openidconnet_uninstall');
-function openidconnect_uninstall() {
-
-}
-
 require_once __DIR__ . '/vendor/autoload.php';
 
+use Themecraft\WordPress\OpenIDConnect\OpenID\AuthenticationRequest;
+use Themecraft\WordPress\OpenIDConnect\OpenID\Client;
+use Themecraft\WordPress\OpenIDConnect\OpenID\Provider;
 use Themecraft\WordPress\OpenIDConnect\Settings;
 
 
-define('PROVIDERS', [
-	'https://accounts.google.com' => [
-		'id' => '709076598341-473789sl6ci08t8mrrskssfa0rnl642l.apps.googleusercontent.com',
-		'secret' => 'q8pKa7ohqPyW1mLSOEwJrufo'
-	]
-]);
+/**
+ * Activation hook
+ */
+register_activation_hook( __FILE__, function () {
 
+} );
+/**
+ * Deactivation hook
+ */
+register_deactivation_hook( __FILE__, function () {
+
+} );
+/**
+ * Uninstall hook
+ */
+register_uninstall_hook(__FILE__, 'openidconnet_uninstall');
+function openidconnect_uninstall() {
+	Settings::uninstall();
+}
+
+// Register admin settings
+Settings::register();
+
+
+/**
+ *
+ */
 add_action( 'login_form', function () { ?>
 	<p>
 		<label for="openid_id"><?php _e( 'OpenID Connect' ); ?><br />
@@ -60,18 +68,15 @@ add_action( 'login_form', function () { ?>
 <?php });
 
 
+/**
+ *
+ */
 add_action( 'login_form_login', function () {
 	$identifier = $_REQUEST['openid_id'];
 
 	if (empty($identifier))
 		return;
 
-	// TODO implement normalization steps presented in section 2.1.2
-
-	[$resource, $host] = explode('@', $identifier, 2);
-	$rel = 'http://openid.net/specs/connect/1.0/issuer';
-
-	// Use WebFinger to find the issuer URL
 	if ($host === 'gmail.com')
 		// Because they don't implement WebFinger for Gmail users
 		$issuer = 'https://accounts.google.com';
@@ -81,43 +86,35 @@ add_action( 'login_form_login', function () {
 	}
 
 	// If provider not configured i.e. truested, the following throws exception
-	$provider = \Themecraft\WordPress\OpenIDConnect\OpenID\Provider::getByIssuer($issuer);
+	if (!Settings::hasProvider($issuer))
+		throw new \Exception('provider not found');
 
-	if ($provider->getIssuer() !== $issuer)
-		throw new Exception(sprintf('Issuer not matching %s !== %s', $issuer, $provider->getIssuer()));
+	$settings = Settings::getProviderSettings($issuer);
+
+	$provider = new Provider($issuer);
 
 	if (!$provider->supportsScope('email') && !$provider->supportsClaim('email')) {
 		// We are unable to authenticated the user by email.
 		throw new Exception('Unable to authenticate user %s by email', $identifier);
 	}
-	// Claims are returned in the ID Token or from the UserInfo endpoint
-
-	// 2. The returned Issuer location MUST be a URI RFC 3986 [RFC3986] with a scheme
-	// component that MUST be https, a host component, and optionally, port and path
-	// components and no query or fragment components.
 
 	// userinfo is *optional*. Do we need it? yes, to fetch the user email
-
 	if (!$provider->supportsResponseType('id_token'))
 		throw new Exception('Provider does not support implicit flow'); // response_types_supported is required in the response
 	if (!$provider->supportsResponseType('code'))
 		throw new Exception('Provider does not support authentication code flow');
 
-	// Make an authorization request using the authorization code flow
-	$requestParams = [
-		'scope' => 'openid'. $provider->supportsScope('email') ? ' email' : '',
-//		'response_type' => 'code',
-		'response_type' => 'id_token',
-		'nonce' => 'stufaiu123h34 ei1u 3h31u2i',
-		'redirect_uri' => site_url() . '/wp-login.php', // MUST match the redirection URI provided by the Client (this siteapp) when it was pre-registered at the OpenID provider. NO query parameters are accepted!!!
-		'client_id' => $provider->getClientId(),
-		'state' => '123', // to maintain state between the request and the callback. Avoid XSRF attacks.
-	];
+	$client = new Client($settings['client_id'], $settings['client_secret']);
 
-	wp_redirect($provider->getAuthorizationEndpoint() . '?'. http_build_query($requestParams));
+	$authRequest = new AuthenticationRequest($client, $provider, $flow = 'code');
+
+	wp_redirect($authRequest->getRedirectUri());
 	exit();
 });
 
+/**
+ *
+ */
 add_filter( 'authenticate', function ($user, $email) {
 	if ( $user instanceof WP_User )
 		return $user;
@@ -125,14 +122,29 @@ add_filter( 'authenticate', function ($user, $email) {
 	if (!array_key_exists('state', $_GET) || !array_key_exists('code', $_GET))
 		return $user;
 
-	$authorizationCode = $_GET['code'];
+	$code = $_GET['code'];
+	$nonce = $_GET['nonce'];
+	$state = $_GET['state'];
+	$id_token = $_GET['id_token'];
 
-	// 1. verify state is valid
-	// 2. get the issuer/provider from the state
-	$issuer = 'https://accounts.google.com'; // remove me
-	$provider = \Themecraft\WordPress\OpenIDConnect\OpenID\Provider::getByIssuer($issuer);
-	$provider->getAccessToken($authorizationCode);
+	if ($code) {
+		$authRequest = AuthenticationRequest::fromState($state, $code); // authorization code flow
+	} else if ($nonce) {
+		// implicit flow??
+		$authRequest = AuthenticationRequest::fromState($state, $id_token);
+		$authRequest->verifyNonce($nonce);
+	}
 
+	// $entity = $authRequest->getEntity()
+	//   NOTE: access token is kinda related to OAuth where the goal is to authorize
+	//         the client and as such the client receives a token it can use to access the resource.
+	//         OpenID goal is to bind an identity (made of certain claims) to the user/entity visiting the website
+	           //===> from an authentication perspective, the end result is an 'identity' i.e. certain assertions about the user
+	//      new Entity($id_token)
+
+	// $entity->getClaim($entity, 'email)
+
+	// MAP to WP_User using email or other means
 	// Fetch user email
 	$email = 'ettore@themecraft.studio';
 	if (true) {
@@ -149,5 +161,3 @@ add_filter( 'authenticate', function ($user, $email) {
 
 
 // TODO hook form errors messages if error and state are defined. error_description is optional.
-
-Settings::register();

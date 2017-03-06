@@ -24,67 +24,50 @@ class Provider
 	/** @var  string */
 	protected $accessToken;
 
-	public function __construct(string $issuer, ?string $clientId, ?string $clientSecret) {
+	/** @var ProviderMetadata */
+	protected $configuration;
+
+	public function __construct(string $issuer) {
 		$this->issuer = $issuer;
-		$this->clientId = $clientId;
-		$this->clientSecret = $clientSecret;
-	}
+		$this->clientId = $clientId = '';
+		$this->clientSecret = $clientSecret = '';
 
-	/**
-	 * @param $issuer
-	 * @return Provider
-	 * @throws UnknownProviderException
-	 */
-	public static function getByIssuer( $issuer ): Provider {
-		if (!Settings::hasProvider($issuer))
-			throw new UnknownProviderException($issuer);
-
-		$settings = Settings::getProviderSettings($issuer);
-
-		return new Provider($issuer, $settings['client_id'], $settings['client_secret']);
+		$this->configuration = new ProviderMetadata($issuer);
 	}
 
 	public function supportsResponseType(string $type): bool
 	{
-		// response_types_supported REQUIRED by spec
-		return in_array($type, $this->getMetadata()['response_types_supported']);
+		return in_array($type, $this->configuration->getSupportedResponseTypes());
 	}
 
-	public function supportsClaim(string $claim): ?bool
+	public function supportsClaim(string $claim): bool
 	{
-		// claims_supported RECOMMENDED by spec
-		if (!array_key_exists('claims_supported', $this->getMetadata()))
-			return null;
-
-		return in_array($claim, $this->getMetadata()['claims_supported']);
+		return in_array($claim, $this->configuration->getSupportedClaims());
 	}
 
 	public function supportsScope(string $scope): ?bool
 	{
-		// scopes_supported RECOMMENDED by spec
-		if (!array_key_exists('scopes_supported', $this->getMetadata()))
-			return null;
-
-		return in_array($scope, $this->getMetadata()['scopes_supported']);
-	}
-
-	private function getMetadata(): array
-	{
-		if ($this->metadata)
-			return $this->metadata;
-
-		$openidConfigurationURI = $this->getIssuer() . '/.well-known/openid-configuration';
-
-		$client = new Client();
-		$result = $client->request('GET', $openidConfigurationURI);
-		$this->metadata = json_decode($result->getBody(), true);
-
-		return $this->metadata;
+		return in_array($scope, $this->configuration->getSupportedScopes());
 	}
 
 	protected function getTokenEndpoint(): ?string
 	{
-		return in_array('token_endpoint', $this->getMetadata()) ? $this->getMetadata()['token_endpoint'] : null;
+		return $this->configuration->getTokenEndpoint();
+	}
+
+	public function getIssuer(): string
+	{
+		return $this->configuration->getIssuer();
+	}
+
+	public function getAuthorizationEndpoint()
+	{
+		return $this->configuration->getAuthorizationEndpoint();
+	}
+
+	public function supportsTokenEndpointAuthMethod(string $method): ?bool
+	{
+		return in_array($method, $this->configuration->getTokenEndpointSupportedAuthMethods());
 	}
 
 	public function getAccessToken(?string $code): string
@@ -127,40 +110,5 @@ class Provider
 
 
 		return $this->accessToken = $accessToken;
-	}
-
-	public function getIssuer(): string
-	{
-		return $this->issuer;
-	}
-
-	public function getClientId(): ?string
-	{
-		return $this->clientId;
-	}
-
-	public function getClientSecret(): ?string
-	{
-		return $this->clientSecret;
-	}
-
-	public function getAuthorizationEndpoint()
-	{
-		// authorization_endpoint REQUIRED by spec
-		return $this->getMetadata()['authorization_endpoint'];
-	}
-
-	public function supportsTokenEndpointAuthMethod(string $method): ?bool
-	{
-		// token_endpoint_auth_methods_supported OPTIONAL by spec
-		if (!array_key_exists('token_endpoint_auth_methods_supported', $this->getMetadata()))
-			return null;
-
-		return in_array($method, $this->getMetadata());
-	}
-
-	private function accessTokenIsValid(): bool
-	{
-		return true;
 	}
 }

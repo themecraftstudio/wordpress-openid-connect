@@ -112,8 +112,13 @@ class Settings
 		$providers = get_option(static::getOptionName('providers'));
 		foreach ( $providers as $provider ) {
 			if ($provider['issuer'] === $issuer)
-				return ['client_id' => $provider['id'], 'client_secret' => $providers['secret']];
+				return ['client_id' => $provider['id'], 'client_secret' => $provider['secret']];
 		}
+	}
+
+	public static function uninstall(): void
+	{
+		delete_option('openidconnect_providers');
 	}
 
 }
